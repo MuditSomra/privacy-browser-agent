@@ -35,8 +35,11 @@
  * desk, or a face partially occluded). It's a best-effort layer, and the DOM +
  * regex detectors do not depend on it for text-based PII.
  */
-import { pipeline, env } from '@huggingface/transformers';
 import type { Detector, DetectorInput, DetectionSource, SensitiveDataType, SensitiveRegion } from '../core/types';
+import { normalizeImageData } from '../utils/imageUtils';
+
+export { normalizeImageData };
+export type { NormalizedImageData } from '../utils/imageUtils';
 
 // COCO's 80 classes are what `Xenova/yolos-tiny` (the default model) actually
 // emits, and COCO's ONLY people/PII-adjacent class is literally named
@@ -72,33 +75,42 @@ type CustomDetectorFn = (imageSource: string) => Promise<RawBox[]>;
 type ObjectDetectionPipeline = (
   image: string,
   options?: { threshold?: number; percentage?: boolean },
-) => Promise<Array<{ box?: Partial<RawBox>; label?: string; score?: number }> | { box?: Partial<RawBox>; label?: string; score?: number }>;
+) => Promise<
+  | Array<{ box?: Partial<RawBox>; label?: string; score?: number }>
+  | { box?: Partial<RawBox>; label?: string; score?: number }
+>;
 
 let detectorPipeline: ObjectDetectionPipeline | null = null;
 let isInitializing = false;
 let initError: Error | null = null;
 let customDetector: CustomDetectorFn | null = null;
 
-function configureTransformersEnv(): void {
-  env.allowLocalModels = false;
-  if (env.backends?.onnx?.wasm) {
-    env.backends.onnx.wasm.proxy = false;
-  }
-}
-
 export async function initVisionDetector(modelName = 'Xenova/yolos-tiny'): Promise<void> {
   if (detectorPipeline || customDetector) return;
   if (isInitializing) return;
 
   isInitializing = true;
-  configureTransformersEnv();
 
   try {
-    detectorPipeline = (await pipeline('object-detection', modelName, { device: 'webgpu' })) as unknown as ObjectDetectionPipeline;
+    const { pipeline, env } = await import('@huggingface/transformers');
+    env.allowLocalModels = false;
+    if (env.backends?.onnx?.wasm) {
+      env.backends.onnx.wasm.proxy = false;
+    }
+    detectorPipeline = (await pipeline('object-detection', modelName, {
+      device: 'webgpu',
+    })) as unknown as ObjectDetectionPipeline;
     initError = null;
   } catch (webgpuError) {
     try {
-      detectorPipeline = (await pipeline('object-detection', modelName, { device: 'wasm' })) as unknown as ObjectDetectionPipeline;
+      const { pipeline, env } = await import('@huggingface/transformers');
+      env.allowLocalModels = false;
+      if (env.backends?.onnx?.wasm) {
+        env.backends.onnx.wasm.proxy = false;
+      }
+      detectorPipeline = (await pipeline('object-detection', modelName, {
+        device: 'wasm',
+      })) as unknown as ObjectDetectionPipeline;
       initError = null;
     } catch (wasmError) {
       initError = wasmError instanceof Error ? wasmError : new Error(String(wasmError));
@@ -118,18 +130,6 @@ export function resetVisionDetector(): void {
   customDetector = null;
   isInitializing = false;
   initError = null;
-}
-
-export function normalizeImageData(input: string): { dataUrl: string; rawBase64: string; mimeType: string } {
-  const trimmed = input.trim();
-  if (trimmed.startsWith('data:')) {
-    const commaIndex = trimmed.indexOf(',');
-    const prefix = trimmed.slice(0, commaIndex);
-    const rawBase64 = trimmed.slice(commaIndex + 1);
-    const mimeMatch = prefix.match(/data:([^;]+)/);
-    return { dataUrl: trimmed, rawBase64, mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg' };
-  }
-  return { dataUrl: `data:image/jpeg;base64,${trimmed}`, rawBase64: trimmed, mimeType: 'image/jpeg' };
 }
 
 /**

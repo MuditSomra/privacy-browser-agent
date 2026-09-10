@@ -38,7 +38,6 @@ import { isUrlAllowed } from './util';
 // imported them and never called either one, so raw DOM/screenshots were
 // reaching the LLM unredacted. That module's logic has been migrated into
 // `@src/privacy-engine/{detection,redaction}/*`.
-import { generalSettingsStore } from '@extension/storage';
 
 const logger = createLogger('Page');
 
