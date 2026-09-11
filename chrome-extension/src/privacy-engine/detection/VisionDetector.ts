@@ -85,6 +85,8 @@ let isInitializing = false;
 let initError: Error | null = null;
 let customDetector: CustomDetectorFn | null = null;
 
+import { pipeline, env } from '@huggingface/transformers';
+
 export async function initVisionDetector(modelName = 'Xenova/yolos-tiny'): Promise<void> {
   if (detectorPipeline || customDetector) return;
   if (isInitializing) return;
@@ -92,10 +94,10 @@ export async function initVisionDetector(modelName = 'Xenova/yolos-tiny'): Promi
   isInitializing = true;
 
   try {
-    const { pipeline, env } = await import('@huggingface/transformers');
     env.allowLocalModels = false;
     if (env.backends?.onnx?.wasm) {
       env.backends.onnx.wasm.proxy = false;
+      env.backends.onnx.wasm.numThreads = 1;
     }
     detectorPipeline = (await pipeline('object-detection', modelName, {
       device: 'webgpu',
@@ -103,10 +105,10 @@ export async function initVisionDetector(modelName = 'Xenova/yolos-tiny'): Promi
     initError = null;
   } catch (webgpuError) {
     try {
-      const { pipeline, env } = await import('@huggingface/transformers');
       env.allowLocalModels = false;
       if (env.backends?.onnx?.wasm) {
         env.backends.onnx.wasm.proxy = false;
+        env.backends.onnx.wasm.numThreads = 1;
       }
       detectorPipeline = (await pipeline('object-detection', modelName, {
         device: 'wasm',
