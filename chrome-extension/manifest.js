@@ -62,6 +62,9 @@ const manifest = withOperaSidebar(
     description: '__MSG_app_metadata_description__',
     host_permissions: ['<all_urls>'],
     permissions: ['storage', 'scripting', 'tabs', 'activeTab', 'debugger', 'unlimitedStorage', 'webNavigation'],
+    content_security_policy: {
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    },
     options_page: 'options/index.html',
     background: {
       // 'background.js' (an ES module, not the old 'background.iife.js'

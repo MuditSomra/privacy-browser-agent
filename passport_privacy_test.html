@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GovSecure — Passport Application</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#172033}
+header{background:#14243a;color:#fff;padding:18px 7%;display:flex;justify-content:space-between;align-items:center}
+.brand{font-size:20px;font-weight:700}.secure{font-size:13px;opacity:.85}
+main{max-width:900px;margin:42px auto;padding:0 20px}.card{background:#fff;border-radius:18px;box-shadow:0 10px 35px #14233a14;overflow:hidden}
+.hero{padding:34px 38px 26px;border-bottom:1px solid #e7ebf1}.badge{display:inline-block;background:#eaf2ff;color:#2563eb;padding:7px 12px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:12px}
+h1{margin:0 0 8px;font-size:30px}.subtitle{margin:0;color:#667085;line-height:1.5}
+form{padding:34px 38px 38px}.title{font-size:16px;font-weight:700;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.field{margin-bottom:20px}.full{grid-column:1/-1}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:8px}
+input,select{width:100%;padding:13px 14px;border:1px solid #d5dbe5;border-radius:10px;font-size:14px;background:#fff}
+.notice{background:#fff8e8;border:1px solid #f3dfaa;color:#6f5314;padding:14px 16px;border-radius:10px;font-size:13px;line-height:1.45;margin:4px 0 26px}
+.actions{display:flex;justify-content:flex-end;gap:14px}.clear{border:0;background:transparent;color:#667085;padding:12px 18px}.submit{border:0;background:#2563eb;color:#fff;padding:13px 24px;border-radius:10px;font-weight:700;cursor:pointer}
+#result{display:none;margin:0 38px 34px;padding:15px 18px;border-radius:10px;background:#ecfdf3;color:#166534;border:1px solid #bbf7d0;font-weight:600}
+.footer{text-align:center;color:#8a94a6;font-size:12px;margin:20px 0 35px}
+@media(max-width:650px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.hero,form{padding:26px 22px}#result{margin-left:22px;margin-right:22px}}
+</style>
+</head>
+<body>
+<header><div class="brand">GovSecure Portal</div><div class="secure">🔒 Secure Application</div></header>
+<main><div class="card">
+<section class="hero"><span class="badge">PASSPORT SERVICES</span><h1>Passport Application</h1><p class="subtitle">Complete the application details below and submit your request for processing.</p></section>
+<form id="passportForm">
+<h2 class="title">Applicant Information</h2>
+<div class="grid">
+<div class="field"><label for="fullName">Full Name</label><input id="fullName" name="fullName" autocomplete="name" value="Rahul Test"></div>
+<div class="field"><label for="dob">Date of Birth</label><input id="dob" name="dob" autocomplete="bday" value="15/08/2000"></div>
+<div class="field"><label for="email">Email Address</label><input id="email" name="email" type="email" autocomplete="email" value="rahul.test@example.com"></div>
+<div class="field"><label for="phone">Mobile Number</label><input id="phone" name="phone" autocomplete="tel" value="9876543210"></div>
+<div class="field"><label for="passport">Passport Number</label><input id="passport" name="passport" autocomplete="off" value="P1234567"></div>
+<div class="field"><label for="pan">PAN Number</label><input id="pan" name="pan" autocomplete="off" value="ABCDE1234F"></div>
+<div class="field full"><label for="address">Residential Address</label><input id="address" name="address" autocomplete="street-address" value="123 Demo Street, Test City, Punjab"></div>
+<div class="field"><label for="country">Country</label><select id="country" name="country"><option>India</option><option>Canada</option><option>United Kingdom</option></select></div>
+<div class="field"><label for="type">Application Type</label><select id="type" name="type"><option>New Passport</option><option>Passport Renewal</option><option>Reissue</option></select></div>
+</div>
+<div class="notice"><strong>Privacy Test Page:</strong> All personal information on this page is synthetic test data. Do not use real personal information.</div>
+<div class="actions"><button type="button" class="clear" onclick="document.getElementById('passportForm').reset()">Clear</button><button type="submit" id="submitApplication" class="submit">Submit Application</button></div>
+</form>
+<div id="result">✓ Application submitted successfully.</div>
+</div><div class="footer">Demo environment • Synthetic data only</div></main>
+<script>
+document.getElementById("passportForm").addEventListener("submit",e=>{e.preventDefault();document.getElementById("result").style.display="block";});
+</script>
+</body></html>

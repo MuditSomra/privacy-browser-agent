@@ -22,6 +22,7 @@ import type {
   TabContext,
 } from '@src/privacy-engine/core/types';
 import { domStateToSnapshot } from './domTranslate';
+import { truncate } from 'node:fs/promises';
 
 export type NanoBrowserPrivacyResult =
   | {
@@ -100,7 +101,7 @@ export class NanoBrowserAdapter {
     // design never carries a raw matched value — see
     // privacy-engine/core/types.ts's SensitiveRegion doc comment). Does NOT
     // change any privacy behavior; remove once manual verification is done.
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV || true) {
       console.log('[PRIVACY DEBUG] SANITIZED CONTEXT', {
         url: result.context.url,
         title: result.context.title,
