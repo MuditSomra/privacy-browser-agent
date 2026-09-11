@@ -1,103 +1,105 @@
-# Screenshot text PII: current state and design for closing the gap
+# Screenshot text PII: current state and design for closing the remaining gap
 
-## Current state (accurate, as of this phase)
+## Current state (accurate, real-browser verified)
 
 `VisionDetector` runs `Xenova/yolos-tiny`, an **object detector** trained on
 COCO. It can tell you "there is a person-shaped region at (x,y)". It **cannot
-read text**. Nothing in this codebase currently performs OCR or text
-recognition on a screenshot. Concretely, today:
+read text**. Nothing in this codebase performs OCR or text recognition on a
+screenshot. Concretely:
 
 | Sensitive text scenario | Currently caught? | How |
 |---|---|---|
-| Password typed into `<input type=password>` | ✅ | `DOMDetector` (field semantics), redacted in the DOM text listing |
-| Password's on-screen pixels in the screenshot | ✅ (new this phase, see below) | DOM→screenshot coordinate correlation, IF the host's DOM extraction populates `viewportCoordinates` |
-| Email address as a visible `<div>` text node | ✅ | `RegexDetector` on DOM text nodes |
-| That email's on-screen pixels in the screenshot | ✅ (same mechanism, if coordinates are populated) | as above |
-| A person's face in a webcam preview `<video>`/`<img>` | Partial | `VisionDetector`'s `person` class (a face-specific model would be more precise — see below) |
+| Password typed into `<input type=password>` | ✅ verified | `DOMDetector` (field semantics), redacted in the DOM text listing |
+| Password's on-screen pixels in the screenshot | ✅ verified | DOM→screenshot coordinate correlation (see below) |
+| Email/phone/PAN/Aadhaar/passport/credit-card as a DOM attribute or visible text node | ✅ verified | `RegexDetector` on DOM text/attributes |
+| Those values' on-screen pixels in the screenshot | ✅ verified | same coordinate correlation |
+| A person's face in a webcam preview `<video>`/`<img>` | Partial, unverified | `VisionDetector`'s `person` class (a face-specific model would be more precise — see below); also currently fails closed inside the MV3 service worker (see PRIVACY.md) |
 | Text baked into a **photo/scan** with no DOM node (e.g. a photographed ID card, a screenshot pasted as an `<img>`) | ❌ | Nothing today. This is the real remaining gap. |
 | Handwriting, watermarked/stylized text | ❌ | Same gap, harder still |
 
 **We do not claim `VisionDetector` finds textual PII in screenshots. It doesn't.**
 
-## What shipped this phase (zero new dependencies)
+## What shipped and has been REAL-BROWSER VERIFIED
 
 DOM detection already knows *which* elements are sensitive (password fields,
 labelled Aadhaar/PAN/passport inputs, regex-matched emails/phones in text
 nodes) with much higher precision than any local vision model could get from
-pixels alone. The missing piece was purely plumbing: NanoBrowser's
-`DOMElementNode.viewportCoordinates` field already exists for exactly this
-purpose, but nothing currently populates it (the injected content script,
-`public/buildDomTree.js`, computes `getBoundingClientRect()` for every element
-already, for visibility checks — it just doesn't serialize the rect back).
+pixels alone. `DOMElementNode.viewportCoordinates` existed as a field but was
+never populated by the content script — this was wired up and verified
+end-to-end against a real rendered page (not just unit tests):
 
-This phase wires up the **consuming** side end-to-end and unit-tests it:
-
-- `GenericDomNode.bbox` — carries a node's on-screen rectangle, in the same
-  pixel space as the screenshot.
-- `domTranslate.ts` reads `DOMElementNode.viewportCoordinates` into `bbox` if
-  present.
+- `public/buildDomTree.js` serializes each element's cached bounding rect
+  (via the existing `getCachedBoundingRect()`/iframe-offset mechanism, not a
+  fresh `getBoundingClientRect()` call) into `nodeData.viewportCoordinates`.
+- `background/browser/dom/service.ts::_parse_node` maps that into
+  `DOMElementNode.viewportCoordinates`.
+- `domTranslate.ts` reads it into `GenericDomNode.bbox`.
 - `DOMDetector`/`RegexDetector` copy `node.bbox` onto any `SensitiveRegion`
   they raise for that node.
-- `PrivacyEngine`'s redaction step now blacks out **every** region with a
-  `bbox` on the screenshot — vision detections AND DOM-anchored ones — using
-  the same `ImageRedactor` either way.
+- `PrivacyEngine`'s redaction step blacks out every region with a `bbox` on
+  the screenshot — vision detections AND DOM-anchored ones — via the same
+  `ImageRedactor`.
 
-Today, `viewportCoordinates` is unpopulated in a real browser run, so `bbox`
-is `undefined` for DOM regions and this path is a no-op — but it is real,
-tested code (`PrivacyEngine.test.ts` exercises it with a synthetic bbox), not
-a placeholder, and it activates automatically the moment coordinates are
-supplied — no further engine changes needed.
+**Verification method**: a real Chrome page (via Puppeteer driving a real
+Chromium binary, not headless-DOM emulation) containing password/email/phone/
+passport/Aadhaar/credit-card fields was loaded; the actual built
+`buildDomTree.js` was injected and run exactly as
+`chrome.scripting.executeScript` does; a real screenshot was taken; the
+actual `PrivacyEngine`/`domTranslate` code (unmodified, bundled with esbuild)
+ran inside that same real page. Result: all six fields were detected with
+correct `viewportCoordinates`, the DOM listing that would be sent to the LLM
+showed only semantic placeholders, and — checked by sampling pixel colors
+before vs. after — each field's exact on-screen rectangle was blacked out in
+the screenshot while an unrelated, non-sensitive field and the page heading
+were pixel-identical before/after. No raw value (email, password, passport
+number, Aadhaar number, card number, phone number) appeared anywhere in the
+sanitized output.
 
-## Remaining work to fully close the gap (next steps, in priority order)
+This closes the DOM-anchored part of the screenshot-text gap completely for
+real elements with real on-screen positions. It does not, and cannot, help
+with PII that has no backing DOM element (see below).
 
-### 1. Populate `viewportCoordinates` (small, no new dependencies, needs real-browser testing)
+## Known limitation found this phase: vision fails closed inside the service worker
 
-Concretely: in `public/buildDomTree.js`, the per-element `rect` (from
-`getBoundingClientRect()`, already computed at the site emitting
-`nodeData.attributes['computedHeight'/'computedWidth']` and in the visibility
-checks) needs to be serialized onto `nodeData` as e.g. `nodeData.rect = {
-top, left, width, height }`. Then:
+Separately from the OCR gap, if vision analysis is actually invoked (screenshot
+present, vision enabled), it currently runs inside the MV3 background service
+worker and depends on `@huggingface/transformers`/onnxruntime-web, which
+references `document` at module-load time — unavailable in a service worker.
+This is handled safely: the dynamic import throws, `VisionDetector.detect()`
+propagates that, and `PrivacyEngine` fails closed (blocks the request) rather
+than sending an unanalyzed screenshot. But it means vision-based object
+detection does not currently *complete* inside the service worker — every
+vision-requiring request is blocked, not actually analyzed. See PRIVACY.md's
+"MV3 service worker safety" section. The architecturally correct fix (not
+implemented) is running vision inference in a `chrome.offscreen` document.
 
-- `raw_types.ts`'s `RawDomTreeNode` needs a matching optional field.
-- `service.ts::_parse_node` needs to map that into
-  `viewportCoordinates: CoordinateSet` when constructing `DOMElementNode`.
-
-This closes the DOM-anchored part of the gap (form fields, visible text
-nodes) completely, using code that's already written and tested on this side.
-It was **not done in this pass** because it requires modifying and verifying
-behavior in `public/buildDomTree.js` inside a real Chrome tab — something
-this environment cannot execute or screenshot-verify, and shipping an
-unverified change to the content script that's injected into every page the
-extension touches is exactly the kind of "claim it's done without proving it"
-this project explicitly wants avoided. It needs a contributor with a real
-Chrome extension dev environment to implement and verify against a live page.
-
-### 2. Local OCR for text with no DOM node (bigger, needs a dependency decision)
+## Remaining work: local OCR / text-region detection for image-only PII
 
 This is the only way to catch PII in a **photographed/scanned image** with no
 backing DOM element — e.g. a passport photo pasted into an `<img>`, or a
 screenshot-of-a-screenshot. Options, roughly in order of footprint:
 
-- **Do nothing extra, rely on (1) + `VisionDetector`'s `person`/object
-  detection**, and accept this residual risk for the hackathon's timeline.
-  Reasonable default given "keep dependencies minimal."
+- **Do nothing extra**, rely on DOM/regex coverage (which is now solid and
+  verified) + `VisionDetector`'s `person` detection, and accept this residual
+  risk for the hackathon's timeline. Reasonable default given "keep
+  dependencies minimal."
 - **A lightweight local text-detection model** (e.g. a CRAFT/DBNet-style text
   *region* detector) via `@huggingface/transformers` (already a dependency —
   no new package) to find text bounding boxes and simply blur/black them out
   wholesale, without reading their content. Cheaper than full OCR, and doesn't
   need to know *what* the text says to redact it — only *where* it is. This is
   the best next increment if evaluation shows the "text baked into an image"
-  scenario matters for the demo.
+  scenario matters for the demo. Note: this would need the offscreen-document
+  fix above to actually run, for the same reason `VisionDetector` does.
 - **Full OCR + regex** (e.g. `Xenova/trocr-small-printed` via
   `@huggingface/transformers`, or `tesseract.js` as a new dependency) to
   actually read the text and run it through the same `patterns.ts` regexes
   before deciding what to redact. Most capable, most expensive (model size +
-  inference latency), and the most likely to need a real dependency add
-  (`tesseract.js`) if `@huggingface/transformers`'s OCR models prove too slow
-  in a browser extension's service worker.
+  inference latency).
 
 Per instructions, we do **not** add a new OCR dependency preemptively. The
 next step is to run the SIH evaluation harness (Part 17) against a page with
-image-only PII and see whether (1) + `VisionDetector` already leaves an
-unacceptable recall gap; only then pick the cheapest option above that closes
-it.
+image-only PII and see whether DOM/regex coverage + `VisionDetector` already
+leaves an unacceptable recall gap; only then pick the cheapest option above
+that closes it — after first fixing the offscreen-document issue so vision
+can actually run at all.

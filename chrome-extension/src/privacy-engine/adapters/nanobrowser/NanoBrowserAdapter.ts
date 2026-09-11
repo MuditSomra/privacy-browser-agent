@@ -14,7 +14,13 @@
 import type { BrowserState } from '@src/background/browser/views';
 import { PrivacyEngine } from '@src/privacy-engine/core/PrivacyEngine';
 import type { PrivacyEngineConfig } from '@src/privacy-engine/core/PrivacyEngine';
-import type { NamedText, PageContext, PrivacyMetadata, SensitiveRegion, TabContext } from '@src/privacy-engine/core/types';
+import type {
+  NamedText,
+  PageContext,
+  PrivacyMetadata,
+  SensitiveRegion,
+  TabContext,
+} from '@src/privacy-engine/core/types';
 import { domStateToSnapshot } from './domTranslate';
 
 export type NanoBrowserPrivacyResult =
@@ -84,6 +90,31 @@ export class NanoBrowserAdapter {
     const elementsText = browserState.elementTree
       ? browserState.elementTree.clickableElementsToString(includeAttributes)
       : '';
+
+    // ---------------------------------------------------------------------
+    // TEMPORARY DEV-ONLY DEBUG LOGGING — for manual privacy-boundary
+    // verification only. Gated on import.meta.env.DEV so it never runs in a
+    // production build. Logs ONLY the already-sanitized values that were
+    // just computed above (elementsText, redacted screenshot, sanitized
+    // url/title/tabs/actionResults, and SensitiveRegion metadata, which by
+    // design never carries a raw matched value — see
+    // privacy-engine/core/types.ts's SensitiveRegion doc comment). Does NOT
+    // change any privacy behavior; remove once manual verification is done.
+    if (import.meta.env.DEV) {
+      console.log('[PRIVACY DEBUG] SANITIZED CONTEXT', {
+        url: result.context.url,
+        title: result.context.title,
+        tabs: result.context.tabs,
+        elementsTextLength: elementsText.length,
+        elementsTextSample: elementsText,
+        screenshotIncluded: !!result.context.sanitizedScreenshot,
+        screenshotLength: result.context.sanitizedScreenshot?.length ?? 0,
+        actionResults: result.context.sanitizedExtraText,
+        sensitiveRegions: result.context.sensitiveRegions,
+        privacyMetadata: result.context.privacyMetadata,
+      });
+    }
+    // ---------------------------------------------------------------------
 
     return {
       allowed: true,

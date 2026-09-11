@@ -54,10 +54,13 @@ export function toGenericDomSnapshot(root: DOMElementNode): DOMSnapshot {
       id,
       tagName: node.tagName,
       attributes: node.attributes, // shared reference: writes propagate to the original tree
-      // Populated only if the host's DOM extraction filled in viewportCoordinates
-      // (NanoBrowser's own field for this — currently unpopulated by its content
-      // script; see privacy-engine/docs/screenshot-text-pii.md). Once it is, this
-      // starts flowing into screenshot redaction with no further changes needed.
+      // Populated by public/buildDomTree.js (via getCachedBoundingRect) and
+      // mapped through in background/browser/dom/service.ts::_parse_node —
+      // see PRIVACY.md's "screenshot region redaction" section. Falls back to
+      // undefined for nodes buildDomTree.js didn't capture a rect for (e.g.
+      // zero-size or not visible), in which case this node's SensitiveRegion
+      // still gets redacted in the DOM/text listing, just not on the
+      // screenshot.
       bbox: node.viewportCoordinates
         ? {
             xmin: node.viewportCoordinates.topLeft.x,

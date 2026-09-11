@@ -119,6 +119,37 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
+    // ---------------------------------------------------------------------
+    // TEMPORARY DEV-ONLY DEBUG LOGGING — for manual privacy-boundary
+    // verification only. Gated on import.meta.env.DEV so it never runs in a
+    // production build. `inputMessages` at this point is EXACTLY what is
+    // about to be serialized and sent to `this.chatLLM`/`structuredLlm`
+    // below — nothing is added, removed, or further processed after this
+    // point before the network call. Image parts are logged as metadata
+    // (included + length) rather than dumping the (already-redacted, but
+    // still large) base64 payload. Does NOT change any privacy behavior or
+    // the messages themselves; remove once manual verification is done.
+    if (import.meta.env.DEV) {
+      console.log('[PRIVACY DEBUG] OUTGOING LLM CONTEXT', {
+        modelName: this.modelName,
+        modelProvider: this.provider,
+        messageCount: inputMessages.length,
+        messages: inputMessages.map(m => ({
+          role: typeof m._getType === 'function' ? m._getType() : m.constructor?.name,
+          content: Array.isArray(m.content)
+            ? m.content.map(part => {
+                if (part && typeof part === 'object' && 'type' in part && part.type === 'image_url') {
+                  const url = (part as { image_url?: { url?: string } }).image_url?.url;
+                  return { type: 'image_url', imageIncluded: true, approxLength: url?.length ?? 0 };
+                }
+                return part;
+              })
+            : m.content,
+        })),
+      });
+    }
+    // ---------------------------------------------------------------------
+
     // Use structured output
     if (this.withStructuredOutput) {
       logger.debug(`[${this.modelName}] Preparing structured output call with schema:`, {

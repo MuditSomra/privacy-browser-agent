@@ -28,6 +28,26 @@ window.buildDomTree = (
   };
 
   /**
+   * Computes the {x, y} offset to add to an element's own
+   * getBoundingClientRect()/getClientRects() coordinates when that element
+   * lives inside an iframe, so the result is expressed in the TOP-LEVEL
+   * document's viewport coordinate space — the same space a screenshot is
+   * captured in. Mirrors the offset computation already used by
+   * highlightElement() for positioning the visual highlight overlay, so
+   * `nodeData.viewportCoordinates` (added below) lines up with what the
+   * highlight boxes (and therefore what a human/redaction step looking at
+   * the screenshot) actually see.
+   *
+   * @param {HTMLElement | null} parentIframe
+   * @returns {{x: number, y: number}}
+   */
+  function getIframeOffset(parentIframe) {
+    if (!parentIframe) return { x: 0, y: 0 };
+    const iframeRect = parentIframe.getBoundingClientRect();
+    return { x: iframeRect.left, y: iframeRect.top };
+  }
+
+  /**
    * Gets the cached bounding rect for an element.
    *
    * @param {HTMLElement} element - The element to get the bounding rect for.
@@ -1394,6 +1414,23 @@ window.buildDomTree = (
           nodeData.isInteractive = isInteractiveElement(node);
           // Call the dedicated highlighting function
           nodeWasHighlighted = handleHighlighting(nodeData, node, parentIframe, isParentHighlighted);
+        }
+
+        // Serialize this element's on-screen position, in the SAME
+        // top-level-viewport pixel space a screenshot is captured in, so the
+        // privacy engine (see chrome-extension/src/privacy-engine) can black
+        // out a sensitive element's exact rectangle on the screenshot, not
+        // just redact its text/attributes in the DOM listing sent to the
+        // LLM. Uses the already-cached rect (getCachedBoundingRect), not a
+        // fresh getBoundingClientRect() call, per the existing caching
+        // convention in this file.
+        const elementRect = getCachedBoundingRect(node);
+        if (elementRect && elementRect.width > 0 && elementRect.height > 0) {
+          const offset = getIframeOffset(parentIframe);
+          nodeData.viewportCoordinates = {
+            topLeft: { x: elementRect.left + offset.x, y: elementRect.top + offset.y },
+            bottomRight: { x: elementRect.right + offset.x, y: elementRect.bottom + offset.y },
+          };
         }
       }
     }

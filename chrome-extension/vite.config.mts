@@ -45,10 +45,24 @@ export default defineConfig(({ mode }) => {
   publicDir: resolve(rootDir, 'public'),
   build: {
     lib: {
-      formats: ['iife'],
+      // ES module format (not 'iife') is required for the background
+      // service worker: Chrome MV3 module service workers (manifest.js
+      // already declares `background.type: 'module'`) support real
+      // dynamic import() code-splitting, so a lazy-loaded dependency like
+      // `@huggingface/transformers` (used only if/when vision analysis
+      // actually runs — see privacy-engine/detection/VisionDetector.ts)
+      // ends up in a SEPARATE chunk file that's fetched on demand instead
+      // of being eagerly evaluated at service-worker startup. With 'iife'
+      // format, Rollup has no choice but to inline every dynamically
+      // imported module into the single output file (IIFE can't reference
+      // external chunks at runtime), which defeats a dynamic import
+      // entirely and was the actual root cause of onnxruntime-web's
+      // `document.baseURI` reference executing during service-worker
+      // startup. See PRIVACY.md's "MV3 service worker safety" section.
+      formats: ['es'],
       entry: resolve(__dirname, 'src/background/index.ts'),
       name: 'BackgroundScript',
-      fileName: 'background',
+      fileName: () => 'background.js',
     },
     outDir,
     emptyOutDir: false,
@@ -61,6 +75,11 @@ export default defineConfig(({ mode }) => {
         'chrome',
         // 'chromium-bidi/lib/cjs/bidiMapper/BidiMapper.js'
       ],
+      output: {
+        // Predictable chunk names for anything code-split out of the
+        // background entry (e.g. the lazy @huggingface/transformers chunk).
+        chunkFileNames: 'chunks/[name]-[hash].js',
+      },
     },
   },
 

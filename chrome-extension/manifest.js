@@ -64,7 +64,12 @@ const manifest = withOperaSidebar(
     permissions: ['storage', 'scripting', 'tabs', 'activeTab', 'debugger', 'unlimitedStorage', 'webNavigation'],
     options_page: 'options/index.html',
     background: {
-      service_worker: 'background.iife.js',
+      // 'background.js' (an ES module, not the old 'background.iife.js'
+      // IIFE) — required so dynamic import() of @huggingface/transformers
+      // in VisionDetector.ts actually code-splits into a separate,
+      // lazy-fetched chunk instead of being inlined into the service
+      // worker's eagerly-evaluated startup code. See vite.config.mts.
+      service_worker: 'background.js',
       type: 'module',
     },
     action: {

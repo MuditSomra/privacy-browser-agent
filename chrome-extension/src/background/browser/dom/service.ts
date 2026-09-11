@@ -500,6 +500,14 @@ export function _parse_node(nodeData: RawDomTreeNode): [DOMBaseNode | null, stri
     shadowRoot: elementData.shadowRoot ?? false,
     parent: null,
     viewportInfo: viewportInfo,
+    // Populated by buildDomTree.js (public/buildDomTree.js) from
+    // getCachedBoundingRect(), in top-level-viewport pixel space — the same
+    // space a screenshot is captured in. Consumed by
+    // privacy-engine/adapters/nanobrowser/domTranslate.ts to correlate a
+    // sensitive DOM element with its exact rectangle on the screenshot, so
+    // PrivacyEngine can black it out there too, not just in the DOM text
+    // listing. See PRIVACY.md.
+    viewportCoordinates: elementData.viewportCoordinates,
   });
 
   const childrenIds = elementData.children || [];
