@@ -61,7 +61,7 @@ export function toGenericDomSnapshot(root: DOMElementNode): DOMSnapshot {
           xmax: node.viewportCoordinates.bottomRight.x,
           ymax: node.viewportCoordinates.bottomRight.y,
         }
-      : parentBbox;
+      : undefined;
 
     const generic: GenericDomNode = {
       id,

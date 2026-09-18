@@ -144,8 +144,16 @@ export function createStorage<D = string>(key: string, fallback: D, config?: Sto
   }
 
   // Register listener for live updates for our storage area
-  if (liveUpdate) {
-    chrome?.storage[storageEnum].onChanged.addListener(_updateFromStorageOnChanged);
+  if (liveUpdate && chrome?.storage) {
+    if (chrome.storage[storageEnum]?.onChanged) {
+      chrome.storage[storageEnum].onChanged.addListener(_updateFromStorageOnChanged);
+    } else if (chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === storageEnum) {
+          void _updateFromStorageOnChanged(changes);
+        }
+      });
+    }
   }
 
   return {

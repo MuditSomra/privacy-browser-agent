@@ -249,10 +249,14 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
 
       const preview = serialized.length > 300 ? serialized.substring(0, 300) + '...' : serialized;
       privacyFlowStore
-        .updateStepIncoming(stepNum, {
-          abstractPlanPreview: preview,
-          dataKeysUsed: dataKeysFound,
-        })
+        .updateStepIncoming(
+          stepNum,
+          {
+            abstractPlanPreview: preview,
+            dataKeysUsed: dataKeysFound,
+          },
+          this.context.taskId,
+        )
         .catch(err => logger.warning('Failed to update incoming privacy flow:', err));
     } catch (err) {
       logger.warning('Failed to parse incoming privacy flow:', err);

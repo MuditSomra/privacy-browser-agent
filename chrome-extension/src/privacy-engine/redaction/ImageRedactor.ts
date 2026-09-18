@@ -64,12 +64,23 @@ export class ImageRedactor {
 
     ctx.drawImage(imageBitmap, 0, 0);
     ctx.fillStyle = '#000000';
+    const imageArea = width * height;
     for (const box of boxes) {
       const x = Math.max(0, Math.floor(box.xmin));
       const y = Math.max(0, Math.floor(box.ymin));
       const w = Math.min(width - x, Math.ceil(box.xmax - box.xmin));
       const h = Math.min(height - y, Math.ceil(box.ymax - box.ymin));
       if (w > 0 && h > 0) {
+        // Safety: skip boxes that cover more than 50% of the image —
+        // they are almost certainly a misdetected parent container bbox
+        // (e.g. the entire <form>) rather than an individual field.
+        const boxArea = w * h;
+        if (imageArea > 0 && boxArea / imageArea > 0.5) {
+          console.warn(
+            `[ImageRedactor] Skipping oversized redaction box (${w}×${h} = ${Math.round((boxArea / imageArea) * 100)}% of image). Likely a container bbox, not an individual field.`,
+          );
+          continue;
+        }
         ctx.fillRect(x, y, w, h);
       }
     }

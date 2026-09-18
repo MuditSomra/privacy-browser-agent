@@ -58,6 +58,7 @@ const SENSITIVE_LABEL_KEYWORDS: Array<{ pattern: RegExp; type: SensitiveDataType
   { pattern: /\b(aadhaar|aadhar|uidai)\b/i, type: 'AADHAAR' },
   { pattern: /\b(address|street|residence)\b/i, type: 'ADDRESS' },
   { pattern: /\b(email|e-mail)\b/i, type: 'EMAIL' },
+  { pattern: /\b(RegID|regid)\b/i, type: 'REGID' },
 ];
 
 function isValidImagePayload(rawBase64: string): boolean {

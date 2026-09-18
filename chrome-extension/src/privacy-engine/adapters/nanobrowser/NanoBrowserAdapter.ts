@@ -68,6 +68,7 @@ export class NanoBrowserAdapter {
     browserState: BrowserState,
     includeAttributes: string[] | null,
     actionResults: NamedText[] = [],
+    requireVision = true,
   ): Promise<NanoBrowserPrivacyResult> {
     const snapshot = domStateToSnapshot(browserState);
     const tabs: TabContext[] = (browserState.tabs ?? []).map(tab => ({ id: tab.id, url: tab.url, title: tab.title }));
@@ -81,10 +82,22 @@ export class NanoBrowserAdapter {
       extraText: actionResults,
     };
 
-    const result = await this.engine.sanitize(pageContext);
+    // When requireVision is false (text-only LLM prompt), do not fail closed
+    // on vision model download/load failures so DOM coordinate blackout and OCR
+    // still produce sanitized screenshots for local inspector display and audit.
+    this.engine.requireVisionForScreenshots = requireVision;
+
+    let result = await this.engine.sanitize(pageContext);
 
     if (!result.allowed) {
-      return { allowed: false, reason: result.reason };
+      if (!requireVision && pageContext.screenshot) {
+        // For text-only pipeline where screenshot was optional, retry without screenshot
+        pageContext.screenshot = undefined;
+        result = await this.engine.sanitize(pageContext);
+      }
+      if (!result.allowed) {
+        return { allowed: false, reason: result.reason };
+      }
     }
 
     // The engine redacted the DOM in place (see domTranslate.ts's
@@ -96,100 +109,63 @@ export class NanoBrowserAdapter {
       : '';
 
     // ---------------------------------------------------------------------
-    // TEMPORARY DEV-ONLY DEBUG LOGGING — for manual privacy-boundary
-    // verification only. Gated on import.meta.env.DEV so it never runs in a
-    // production build. Logs ONLY the already-sanitized values that were
-    // just computed above (elementsText, redacted screenshot, sanitized
+    // DEBUG & AUDIT LOGGING — for privacy verification in BOTH production
+    // and dev mode. Logs ONLY the already-sanitized values that were
+    // computed above (elementsText, redacted screenshot, sanitized
     // url/title/tabs/actionResults, and SensitiveRegion metadata, which by
-    // design never carries a raw matched value — see
-    // privacy-engine/core/types.ts's SensitiveRegion doc comment). Does NOT
-    // change any privacy behavior; remove once manual verification is done.
-    if (import.meta.env.DEV) {
-      console.log('[PRIVACY DEBUG] SANITIZED CONTEXT', {
-        url: result.context.url,
-        title: result.context.title,
-        tabs: result.context.tabs,
-        elementsTextLength: elementsText.length,
-        elementsTextSample: elementsText,
-        screenshotIncluded: !!result.context.sanitizedScreenshot,
-        screenshotLength: result.context.sanitizedScreenshot?.length ?? 0,
-        actionResults: result.context.sanitizedExtraText,
+    // design never carries a raw matched value).
+    console.log('[PRIVACY DEBUG] SANITIZED CONTEXT', {
+      url: result.context.url,
+      title: result.context.title,
+      tabs: result.context.tabs,
+      elementsTextLength: elementsText.length,
+      elementsTextSample: elementsText.length > 250 ? elementsText.slice(0, 250) + '...' : elementsText,
+      screenshotIncluded: !!result.context.sanitizedScreenshot,
+      screenshotLength: result.context.sanitizedScreenshot?.length ?? 0,
+      actionResults: result.context.sanitizedExtraText,
+      sensitiveRegions: result.context.sensitiveRegions,
+      privacyMetadata: result.context.privacyMetadata,
+    });
+
+    const sanitizedScreenshot = result.context.sanitizedScreenshot;
+
+    if (sanitizedScreenshot) {
+      let dataUrl = '';
+      try {
+        const normalized = normalizeImageData(sanitizedScreenshot);
+        dataUrl = normalized.dataUrl;
+      } catch {
+        dataUrl = sanitizedScreenshot.startsWith('data:')
+          ? sanitizedScreenshot
+          : `data:image/jpeg;base64,${sanitizedScreenshot}`;
+      }
+
+      (globalThis as unknown as { __lastSanitizedScreenshot?: string }).__lastSanitizedScreenshot = dataUrl;
+
+      console.log('[PRIVACY DEBUG] SANITIZED SCREENSHOT', {
+        screenshotIncluded: true,
+        screenshotLength: sanitizedScreenshot.length,
+        detectedCount: result.context.privacyMetadata.detectedCount,
+        redactedCount: result.context.privacyMetadata.redactedCount,
         sensitiveRegions: result.context.sensitiveRegions,
-        privacyMetadata: result.context.privacyMetadata,
       });
 
-      const sanitizedScreenshot = result.context.sanitizedScreenshot;
-
-      if (sanitizedScreenshot) {
-        // Clean up prior object URL to prevent memory leaks during repeated tests
-        if (activePreviewUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-          try {
-            URL.revokeObjectURL(activePreviewUrl);
-          } catch {
-            // ignore
-          }
-          activePreviewUrl = null;
-        }
-
-        let dataUrlFallback = '';
-        try {
-          const { dataUrl, rawBase64, mimeType } = normalizeImageData(sanitizedScreenshot);
-          dataUrlFallback = dataUrl;
-          const binaryString = atob(rawBase64);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const blob = new Blob([bytes], { type: mimeType });
-
-          if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-            activePreviewUrl = URL.createObjectURL(blob);
-          }
-        } catch (err) {
-          console.warn('[PRIVACY DEBUG] Failed to create blob for sanitized screenshot preview:', err);
-        }
-
-        const previewSource = activePreviewUrl ?? dataUrlFallback;
-        if (dataUrlFallback) {
-          (globalThis as unknown as { __lastSanitizedScreenshot?: string }).__lastSanitizedScreenshot = dataUrlFallback;
-        }
-
-        console.log('[PRIVACY DEBUG] SANITIZED SCREENSHOT', {
-          screenshotIncluded: true,
-          screenshotLength: sanitizedScreenshot.length,
-          detectedCount: result.context.privacyMetadata.detectedCount,
-          redactedCount: result.context.privacyMetadata.redactedCount,
-          sensitiveRegions: result.context.sensitiveRegions,
-          ...(activePreviewUrl ? { previewUrl: activePreviewUrl } : {}),
-        });
-
-        if (previewSource) {
-          // DevTools CSS image rendering: inspectable inline visual representation in console
-          console.log(
-            '%c ',
-            `font-size: 1px; padding: 140px 240px; background-image: url("${previewSource}"); background-size: contain; background-repeat: no-repeat; background-position: center; border: 2px solid #2563eb; border-radius: 8px; background-color: #111;`,
-          );
-
-          // If HTMLImageElement is supported in this environment, log an Image instance for inspection
-          if (typeof Image !== 'undefined') {
-            try {
-              const img = new Image();
-              img.src = previewSource;
-              console.log(img);
-            } catch {
-              // ignore
-            }
-          }
-        }
-      } else {
-        console.log('[PRIVACY DEBUG] SANITIZED SCREENSHOT', {
-          screenshotIncluded: false,
-          screenshotLength: 0,
-          detectedCount: result.context.privacyMetadata.detectedCount,
-          redactedCount: result.context.privacyMetadata.redactedCount,
-          sensitiveRegions: result.context.sensitiveRegions,
-        });
+      if (dataUrl) {
+        // DevTools CSS image rendering: inspectable inline visual representation in console
+        console.log(
+          '%c ',
+          `font-size: 1px; padding: 120px 200px; background-image: url("${dataUrl}"); background-size: contain; background-repeat: no-repeat; background-position: center; border: 2px solid #2563eb; border-radius: 8px; background-color: #111; margin: 4px 0;`,
+        );
+        console.log('[PRIVACY DEBUG] SANITIZED SCREENSHOT URL:', dataUrl);
       }
+    } else {
+      console.log('[PRIVACY DEBUG] SANITIZED SCREENSHOT', {
+        screenshotIncluded: false,
+        screenshotLength: 0,
+        detectedCount: result.context.privacyMetadata.detectedCount,
+        redactedCount: result.context.privacyMetadata.redactedCount,
+        sensitiveRegions: result.context.sensitiveRegions,
+      });
     }
     // ---------------------------------------------------------------------
 

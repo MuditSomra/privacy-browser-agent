@@ -435,7 +435,14 @@ export default class Page {
       }
 
       // Take screenshot if needed
-      const screenshot = useVision ? await this.takeScreenshot() : null;
+      let screenshot: string | null = null;
+      if (useVision) {
+        try {
+          screenshot = await this.takeScreenshot();
+        } catch (screenshotError) {
+          logger.warning('Failed to take screenshot during _updateState:', screenshotError);
+        }
+      }
       const [scrollY, visualViewportHeight, scrollHeight] = await this.getScrollInfo();
 
       // update the state
@@ -456,48 +463,85 @@ export default class Page {
   }
 
   async takeScreenshot(fullPage = false): Promise<string | null> {
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer page is not connected');
+    // 1. First try puppeteer if connected
+    if (this._puppeteerPage) {
+      try {
+        // Disable animations/transitions
+        await this._puppeteerPage.evaluate(() => {
+          const styleId = 'puppeteer-disable-animations';
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+              *, *::before, *::after {
+                animation: none !important;
+                transition: none !important;
+              }
+            `;
+            document.head.appendChild(style);
+          }
+        });
+
+        // Take the screenshot using JPEG format with 80% quality
+        const screenshot = await this._puppeteerPage.screenshot({
+          fullPage: fullPage,
+          encoding: 'base64',
+          type: 'jpeg',
+          quality: 80,
+        });
+
+        // Clean up the style element
+        await this._puppeteerPage.evaluate(() => {
+          const style = document.getElementById('puppeteer-disable-animations');
+          if (style) {
+            style.remove();
+          }
+        });
+
+        if (screenshot) {
+          return screenshot as string;
+        }
+      } catch (puppeteerError) {
+        logger.warning('Puppeteer screenshot failed, trying chrome.tabs.captureVisibleTab fallback:', puppeteerError);
+      }
     }
 
-    try {
-      // First disable animations/transitions
-      await this._puppeteerPage.evaluate(() => {
-        const styleId = 'puppeteer-disable-animations';
-        if (!document.getElementById(styleId)) {
-          const style = document.createElement('style');
-          style.id = styleId;
-          style.textContent = `
-            *, *::before, *::after {
-              animation: none !important;
-              transition: none !important;
-            }
-          `;
-          document.head.appendChild(style);
+    // 2. Native Chrome Extension API fallback (works without CDP/Puppeteer connection)
+    if (typeof chrome !== 'undefined' && chrome.tabs?.captureVisibleTab) {
+      try {
+        let windowId: number | undefined = undefined;
+        if (this._tabId) {
+          try {
+            const tab = await chrome.tabs.get(this._tabId);
+            windowId = tab.windowId;
+          } catch {
+            // ignore
+          }
         }
-      });
 
-      // Take the screenshot using JPEG format with 80% quality
-      const screenshot = await this._puppeteerPage.screenshot({
-        fullPage: fullPage,
-        encoding: 'base64',
-        type: 'jpeg',
-        quality: 80, // Good balance between quality and file size
-      });
+        const dataUrl = await new Promise<string | null>(resolve => {
+          chrome.tabs.captureVisibleTab(
+            windowId ?? (null as unknown as number),
+            { format: 'jpeg', quality: 80 },
+            url => {
+              if (chrome.runtime?.lastError || !url) {
+                resolve(null);
+              } else {
+                resolve(url);
+              }
+            },
+          );
+        });
 
-      // Clean up the style element
-      await this._puppeteerPage.evaluate(() => {
-        const style = document.getElementById('puppeteer-disable-animations');
-        if (style) {
-          style.remove();
+        if (dataUrl) {
+          return dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
         }
-      });
-
-      return screenshot as string;
-    } catch (error) {
-      logger.error('Failed to take screenshot:', error);
-      throw error;
+      } catch (chromeTabError) {
+        logger.warning('chrome.tabs.captureVisibleTab fallback failed:', chromeTabError);
+      }
     }
+
+    return null;
   }
 
   url(): string {

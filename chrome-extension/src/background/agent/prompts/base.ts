@@ -5,6 +5,7 @@ import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { NanoBrowserAdapter } from '@src/privacy-engine/adapters/nanobrowser/NanoBrowserAdapter';
 import { PrivacyBlockedError } from '@src/background/agent/agents/errors';
+import type { BrowserState } from '@src/background/browser/views';
 
 const logger = createLogger('BasePrompt');
 
@@ -35,7 +36,31 @@ abstract class BasePrompt {
    * @returns HumanMessage from LangChain
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
-    const browserState = await context.browserContext.getState(context.options.useVision);
+    let browserState: BrowserState;
+    if (context.options.useVision) {
+      browserState = await context.browserContext.getState(true);
+    } else {
+      try {
+        browserState = await context.browserContext.getState(true);
+      } catch {
+        browserState = await context.browserContext.getState(false);
+      }
+    }
+
+    // Ensure we capture a screenshot for local privacy analysis and the transparency inspector
+    if (!browserState.screenshot && typeof context.browserContext?.getCurrentPage === 'function') {
+      try {
+        const currentPage = await context.browserContext.getCurrentPage();
+        if (currentPage && typeof currentPage.takeScreenshot === 'function') {
+          const shot = await currentPage.takeScreenshot();
+          if (shot) {
+            browserState.screenshot = shot;
+          }
+        }
+      } catch (err) {
+        logger.debug('Could not capture fallback screenshot in BasePrompt:', err);
+      }
+    }
 
     // Action results/extracted content can themselves contain PII echoed back
     // from the page (e.g. an extracted email or name), so they go through the
@@ -65,6 +90,7 @@ abstract class BasePrompt {
       browserState,
       context.options.includeAttributes,
       actionResultsInput,
+      context.options.useVision,
     );
     if (!privacyResult.allowed) {
       throw new PrivacyBlockedError(
@@ -101,6 +127,46 @@ abstract class BasePrompt {
           ? rawElementsText.substring(0, 250) + '...'
           : rawElementsText || 'Empty page elements';
 
+      const sanitizedScreenshotUrl = privacyResult.screenshot
+        ? privacyResult.screenshot.startsWith('data:')
+          ? privacyResult.screenshot
+          : `data:image/jpeg;base64,${privacyResult.screenshot}`
+        : null;
+
+      const rawScreenshotUrl = browserState.screenshot
+        ? browserState.screenshot.startsWith('data:')
+          ? browserState.screenshot
+          : `data:image/jpeg;base64,${browserState.screenshot}`
+        : null;
+
+      // Log in both production and development mode for complete transparency
+      console.group(
+        `%c🛡️ [PRIVACY ENGINE] Step ${stepNum} — Sanitized Page & Screenshot`,
+        'background: #047857; color: #6ee7b7; font-weight: bold; font-size: 11px; padding: 3px 6px; border-radius: 4px;',
+      );
+      console.log('🛡️ Step Details:', {
+        stepNumber: stepNum,
+        taskId,
+        url: privacyResult.url || browserState.url,
+        title: privacyResult.title || browserState.title,
+        sensitiveRegionsCount: privacyResult.sensitiveRegions.length,
+        redactionsCount: privacyResult.privacyMetadata.redactedCount ?? privacyResult.sensitiveRegions.length,
+        sources: privacyResult.privacyMetadata.sourcesUsed,
+        hasSanitizedScreenshot: Boolean(sanitizedScreenshotUrl),
+      });
+
+      if (sanitizedScreenshotUrl) {
+        console.log('🛡️ [SANITIZED SCREENSHOT PREVIEW] Blackout rectangles applied on-device:');
+        console.log(
+          '%c ',
+          `font-size: 1px; padding: 100px 160px; background-image: url("${sanitizedScreenshotUrl}"); background-size: contain; background-repeat: no-repeat; background-position: center; border: 2px solid #10b981; border-radius: 8px; background-color: #0b1329; margin: 4px 0;`,
+        );
+        console.log('🛡️ Sanitized Image (Data URL click/copy):', sanitizedScreenshotUrl);
+      } else {
+        console.log('🛡️ [SANITIZED SCREENSHOT] No screenshot available or needed for this step (Text-Only DOM).');
+      }
+      console.groupEnd();
+
       privacyFlowStore
         .addStep({
           stepNumber: stepNum,
@@ -115,6 +181,11 @@ abstract class BasePrompt {
             summary: `${privacyResult.sensitiveRegions.length} sensitive item(s) detected and redacted.`,
             sampleRedactions: sampleTokens,
             screenshotRedacted: Boolean(privacyResult.screenshot),
+            sanitizedScreenshot: sanitizedScreenshotUrl,
+            rawScreenshot: rawScreenshotUrl,
+            visionRegionsCount: privacyResult.sensitiveRegions.filter(r => r.source === 'vision').length,
+            ocrRegionsCount: privacyResult.sensitiveRegions.filter(r => r.source === 'ocr').length,
+            domRegionsCount: privacyResult.sensitiveRegions.filter(r => r.source === 'dom').length,
           },
           outgoing: {
             modelName: 'Remote Agent LLM',

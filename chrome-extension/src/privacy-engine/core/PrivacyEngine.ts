@@ -85,7 +85,7 @@ export class PrivacyEngine {
   private domRedactor: DOMRedactor;
   private imageRedactor: ImageRedactor;
   private textRedactor: TextRedactor;
-  private requireVisionForScreenshots: boolean;
+  public requireVisionForScreenshots: boolean;
 
   constructor(config?: PrivacyEngineConfig) {
     this.policy = config?.policy ?? new PrivacyPolicy();

@@ -19,6 +19,7 @@ import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { PrivacyFlowModal } from './components/PrivacyFlowModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
@@ -1259,11 +1260,56 @@ const SidePanel = () => {
         )}
       </div>
 
-      <PrivacyFlowModal
-        isOpen={showPrivacyInspector}
-        onClose={() => setShowPrivacyInspector(false)}
-        isDarkMode={isDarkMode}
-      />
+      <ErrorBoundary
+        fallback={(error, reset) =>
+          showPrivacyInspector ? (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm"
+              onClick={() => setShowPrivacyInspector(false)}>
+              <div
+                className={`relative flex w-full max-w-md flex-col rounded-2xl border p-5 shadow-2xl ${
+                  isDarkMode ? 'border-slate-700 bg-slate-900 text-gray-100' : 'border-slate-200 bg-white text-gray-800'
+                }`}
+                onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 text-rose-500">
+                  <FiShield size={22} />
+                  <h3 className="font-bold text-sm">Privacy Inspector Recovery</h3>
+                </div>
+                <p className="mt-2 text-xs text-gray-400 leading-relaxed">
+                  The inspector encountered an issue reading privacy flow history ({error?.message || 'Storage error'}).
+                  You can clear the local privacy cache or close.
+                </p>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      privacyFlowStore.clear().catch(() => {});
+                      reset();
+                    }}
+                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 cursor-pointer transition-colors">
+                    Clear Privacy Cache
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPrivacyInspector(false);
+                      reset();
+                    }}
+                    className="rounded-lg bg-gray-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-500 cursor-pointer transition-colors">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null
+        }>
+        <PrivacyFlowModal
+          isOpen={showPrivacyInspector}
+          onClose={() => setShowPrivacyInspector(false)}
+          isDarkMode={isDarkMode}
+          currentTaskId={currentSessionId}
+        />
+      </ErrorBoundary>
     </div>
   );
 };

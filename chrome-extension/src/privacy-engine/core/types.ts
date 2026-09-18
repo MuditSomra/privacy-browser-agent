@@ -32,7 +32,8 @@ export type SensitiveDataType =
   | 'FACE'
   | 'PERSON'
   | 'DOCUMENT'
-  | 'UNKNOWN_SENSITIVE';
+  | 'UNKNOWN_SENSITIVE'
+  | 'REGID';
 
 /** What the policy/redactor should do with a detected region. */
 export type RedactionAction = 'ALLOW' | 'REDACT' | 'BLUR' | 'MASK' | 'BLOCK';

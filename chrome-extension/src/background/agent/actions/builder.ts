@@ -736,12 +736,16 @@ export class ActionBuilder {
                 ? this.context.stepInfo.stepNumber + 1
                 : this.context.nSteps) || 1;
             privacyFlowStore
-              .updateStepResolution(stepNum, {
-                resolvedKeys: [input.dataKey],
-                elementIndex: input.index,
-                sanitizedMessage: resolved.sanitizedMessage,
-                timestamp: Date.now(),
-              })
+              .updateStepResolution(
+                stepNum,
+                {
+                  resolvedKeys: [input.dataKey],
+                  elementIndex: input.index,
+                  sanitizedMessage: resolved.sanitizedMessage,
+                  timestamp: Date.now(),
+                },
+                this.context.taskId,
+              )
               .catch(err => logger.warning('Failed to update resolution privacy flow:', err));
           } catch (err) {
             logger.warning('Failed to record privacy resolution event:', err);
